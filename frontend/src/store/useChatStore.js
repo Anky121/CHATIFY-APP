@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { axiosInstance } from "../lib/axios";
 import toast from "react-hot-toast";
+import { useAuthStore } from "./useAuthStore";
 
 export const useChatStore = create((set, get) => ({
   allContacts: [],
@@ -53,6 +54,41 @@ export const useChatStore = create((set, get) => ({
       toast.error(error.response?.data?.message || "Something went wrong");
     } finally {
       set({ isMessagesLoading: false });
+    }
+  },
+
+  sendMessage: async (messageData) => {
+    const { selectedUser, messages } = get(); // ← snapshot taken HERE, e.g. messages= [msg1, msg2]
+    // same as writing:
+    // const selectedUser = get().selectedUser;
+    // const messages = get().messages;
+    const { authUser } = useAuthStore.getState();
+
+    const tempId = `temp-${Date.now()}`;
+
+    const optimisticMessage = {
+      _id: tempId,
+      senderId: authUser._id,
+      receiverId: selectedUser._id,
+      text: messageData.text,
+      image: messageData.image,
+      createdAt: new Date().toISOString(),
+      isOptimistic: true, //flag to identify optimistic messages (optional)
+    };
+    // immedetaly update ui by adding the message
+    set({ messages: [...messages, optimisticMessage] }); // UI shows [msg1, msg2, optimistic]
+
+    try {
+      const res = await axiosInstance.post(
+        `/messages/send/${selectedUser._id}`,
+        messageData,
+      );
+      set({ messages: messages.concat(res.data) }); // [msg1, msg2, realMsg]
+      //              ^^^^^^^^ still the OLD snapshot, not the updated one
+    } catch (error) {
+      //remove optimistic message on failure
+      set({ messages: messages }); // [msg1, msg2] — rolled back
+      toast.error(error.response?.data?.message || "Something went wrong");
     }
   },
 }));
